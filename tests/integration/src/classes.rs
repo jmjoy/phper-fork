@@ -11,8 +11,8 @@
 use phper::{
     alloc::RefClone,
     classes::{
-        array_access_class, iterator_class, ClassEntity, ClassEntry, InterfaceEntity,
-        StaticInterface, StaticStateClass, Visibility,
+        ClassEntity, ClassEntry, InterfaceEntity, StaticInterface, StaticStateClass, Visibility,
+        array_access_class, iterator_class,
     },
     functions::Argument,
     modules::Module,
