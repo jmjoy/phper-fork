@@ -4,3 +4,4 @@
 /vendor
 core
 compile_commands.json
+.cache

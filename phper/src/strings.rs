@@ -251,3 +251,5 @@ fn common_fmt(this: &ZStr, f: &mut fmt::Formatter<'_>, name: &str) -> fmt::Resul
     };
     d.finish()
 }
+
+Gc

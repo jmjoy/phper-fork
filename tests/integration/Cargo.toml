@@ -22,7 +22,7 @@ crate-type = ["lib", "cdylib"]
 
 [dependencies]
 indexmap = "2.7.1"
-phper = { workspace = true }
+phper = { workspace = true, features = ["unstable"] }
 
 [dev-dependencies]
 phper-test = { workspace = true }

@@ -14,14 +14,14 @@ use crate::{classes::ClassEntry, objects::ZObject, sys::*, types::TypeInfo, valu
 use derive_more::Constructor;
 use phper_alloc::ToRefOwned;
 use std::{
-    cell::RefCell,
+    cell::{BorrowError, RefCell},
     convert::Infallible,
     error,
     ffi::FromBytesWithNulError,
     fmt::{self, Debug, Display},
     io,
     marker::PhantomData,
-    mem::{ManuallyDrop, replace},
+    mem::{replace, ManuallyDrop},
     ops::{Deref, DerefMut},
     ptr::null_mut,
     result,
@@ -182,6 +182,9 @@ pub enum Error {
     #[error(transparent)]
     FromBytesWithNul(#[from] FromBytesWithNulError),
 
+    #[error(transparent)]
+    Borrow(#[from] BorrowError),
+
     /// Owned boxed dynamic error.
     #[error(transparent)]
     Boxed(#[from] Box<dyn error::Error>),
@@ -210,6 +213,9 @@ pub enum Error {
     /// Failed when the object isn't implement PHP `Throwable`.
     #[error(transparent)]
     NotImplementThrowable(#[from] NotImplementThrowableError),
+
+    #[error(transparent)]
+    UnknownType(#[from] UnknownTypeError),
 }
 
 impl Error {
@@ -233,6 +239,7 @@ impl Throwable for Error {
             Error::Io(e) => Throwable::get_class(e as &dyn error::Error),
             Error::Utf8(e) => Throwable::get_class(e as &dyn error::Error),
             Error::FromBytesWithNul(e) => Throwable::get_class(e as &dyn error::Error),
+            Error::Borrow(e) => Throwable::get_class(e as &dyn error::Error),
             Error::Boxed(e) => Throwable::get_class(e.deref()),
             Error::Throw(e) => Throwable::get_class(e),
             Error::ClassNotFound(e) => Throwable::get_class(e),
@@ -240,6 +247,7 @@ impl Throwable for Error {
             Error::InitializeObject(e) => Throwable::get_class(e),
             Error::ExpectType(e) => Throwable::get_class(e),
             Error::NotImplementThrowable(e) => Throwable::get_class(e),
+            Error::UnknownType(e) => Throwable::get_class(e),
         }
     }
 
@@ -249,6 +257,7 @@ impl Throwable for Error {
             Error::Io(e) => Throwable::get_code(e as &dyn error::Error),
             Error::Utf8(e) => Throwable::get_code(e as &dyn error::Error),
             Error::FromBytesWithNul(e) => Throwable::get_code(e as &dyn error::Error),
+            Error::Borrow(e) => Throwable::get_code(e as &dyn error::Error),
             Error::Boxed(e) => Throwable::get_code(e.deref()),
             Error::Throw(e) => Throwable::get_code(e),
             Error::ClassNotFound(e) => Throwable::get_code(e),
@@ -256,6 +265,7 @@ impl Throwable for Error {
             Error::InitializeObject(e) => Throwable::get_code(e),
             Error::ExpectType(e) => Throwable::get_code(e),
             Error::NotImplementThrowable(e) => Throwable::get_code(e),
+            Error::UnknownType(e) => Throwable::get_code(e),
         }
     }
 
@@ -264,6 +274,7 @@ impl Throwable for Error {
             Error::Io(e) => Throwable::get_message(e as &dyn error::Error),
             Error::Utf8(e) => Throwable::get_message(e as &dyn error::Error),
             Error::FromBytesWithNul(e) => Throwable::get_message(e as &dyn error::Error),
+            Error::Borrow(e) => Throwable::get_message(e as &dyn error::Error),
             Error::Boxed(e) => Throwable::get_message(e.deref()),
             Error::Throw(e) => Throwable::get_message(e),
             Error::ClassNotFound(e) => Throwable::get_message(e),
@@ -271,6 +282,7 @@ impl Throwable for Error {
             Error::InitializeObject(e) => Throwable::get_message(e),
             Error::ExpectType(e) => Throwable::get_message(e),
             Error::NotImplementThrowable(e) => Throwable::get_message(e),
+            Error::UnknownType(e) => Throwable::get_message(e),
         }
     }
 
@@ -279,6 +291,7 @@ impl Throwable for Error {
             Error::Io(e) => Throwable::to_object(e as &mut dyn error::Error),
             Error::Utf8(e) => Throwable::to_object(e as &mut dyn error::Error),
             Error::FromBytesWithNul(e) => Throwable::to_object(e as &mut dyn error::Error),
+            Error::Borrow(e) => Throwable::to_object(e as &mut dyn error::Error),
             Error::Boxed(e) => Throwable::to_object(e.deref_mut()),
             Error::Throw(e) => Throwable::to_object(e),
             Error::ClassNotFound(e) => Throwable::to_object(e),
@@ -286,6 +299,7 @@ impl Throwable for Error {
             Error::InitializeObject(e) => Throwable::to_object(e),
             Error::ExpectType(e) => Throwable::to_object(e),
             Error::NotImplementThrowable(e) => Throwable::to_object(e),
+            Error::UnknownType(e) => Throwable::to_object(e),
         }
     }
 }
@@ -462,6 +476,16 @@ impl Throwable for InitializeObjectError {
 pub struct NotImplementThrowableError;
 
 impl Throwable for NotImplementThrowableError {
+    fn get_class(&self) -> &ClassEntry {
+        type_error_class()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("Unknown type")]
+pub struct UnknownTypeError;
+
+impl Throwable for UnknownTypeError {
     fn get_class(&self) -> &ClassEntry {
         type_error_class()
     }

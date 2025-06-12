@@ -16,19 +16,20 @@ use crate::{
     classes::{ClassEntry, RawVisibility, Visibility},
     errors::{ArgumentCountError, ExceptionGuard, ThrowObject, Throwable, throw},
     modules::global_module,
-    objects::{StateObj, ZObj, ZObject},
+    objects::{StateObj, StateObject, ZObj, ZObject},
     strings::{ZStr, ZString},
     sys::*,
     types::{ArgumentTypeHint, ReturnTypeHint},
     utils::ensure_end_with_zero,
-    values::{ExecuteData, ZVal},
+    values::{ExecuteData, ZVal, ZValue},
 };
 use phper_alloc::ToRefOwned;
 use std::{
+    cell::RefCell,
     collections::HashMap,
     ffi::{CStr, CString},
     marker::PhantomData,
-    mem::{ManuallyDrop, size_of, transmute, zeroed},
+    mem::{ManuallyDrop, forget, replace, size_of, transmute, zeroed},
     ptr::{self, null_mut},
     rc::Rc,
     slice,
@@ -69,6 +70,57 @@ where
                     throw(e);
                 }
                 *return_value = ().into();
+            }
+        }
+    }
+}
+
+pub(crate) struct OwnedFunction<F, Z, E>(F, PhantomData<(Z, E)>);
+
+impl<F, Z, E> OwnedFunction<F, Z, E> {
+    pub(crate) fn new(f: F) -> Self {
+        Self(f, PhantomData)
+    }
+}
+
+impl<F, Z, E> Callable for OwnedFunction<F, Z, E>
+where
+    F: Fn(Box<[ZValue]>) -> Result<Z, E>,
+    Z: Into<ZVal>,
+    E: Throwable,
+{
+    fn call(&self, _: &mut ExecuteData, arguments: &mut [ZVal], return_value: &mut ZVal) {
+        fn handle_err(e: impl Throwable, return_value: &mut ZVal) {
+            unsafe {
+                throw(e);
+            }
+            *return_value = ().into();
+        }
+
+        let mut owned_arguments = Vec::with_capacity(arguments.len());
+
+        for arg in arguments {
+            let arg = unsafe {
+                let mut val = (arg as *const ZVal).read();
+                phper_z_try_addref_p(val.as_mut_ptr());
+                val
+            };
+
+            match ZValue::try_from(arg) {
+                Ok(val) => owned_arguments.push(val),
+                Err(err) => {
+                    handle_err(err, return_value);
+                    return;
+                }
+            }
+        }
+
+        match (self.0)(owned_arguments.into_boxed_slice()) {
+            Ok(val) => {
+                *return_value = val.into();
+            }
+            Err(err) => {
+                handle_err(err, return_value);
             }
         }
     }

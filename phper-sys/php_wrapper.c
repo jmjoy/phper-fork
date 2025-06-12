@@ -210,6 +210,10 @@ void phper_separate_array(zval *zv) {
     SEPARATE_ARRAY(zv);
 }
 
+void phper_z_try_addref_p(zval *zv) {
+    Z_TRY_ADDREF_P(zv);
+}
+
 // ==================================================
 // string apis:
 // ==================================================

@@ -8,6 +8,7 @@
 // NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
 // See the Mulan PSL v2 for more details.
 
+use crate::arguments;
 use phper::{
     arrays::ZArray,
     errors::throw,
@@ -59,4 +60,9 @@ pub fn integrate(module: &mut Module) {
         assert_eq!(e.to_string(), "throw error exception");
         Ok::<_, Infallible>(())
     });
+
+    module.add_owned_function(
+        "integrate_owned_functions_call",
+        |arguments| -> phper::Result<()> { todo!() },
+    );
 }

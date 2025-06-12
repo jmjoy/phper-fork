@@ -214,6 +214,23 @@ impl Module {
         self.function_entities.last_mut().unwrap()
     }
 
+    /// Register function to module.
+    #[cfg(feature = "unstable")]
+    pub fn add_owned_function<F, Z, E>(
+        &mut self, name: impl Into<String>, handler: F,
+    ) -> &mut FunctionEntity
+    where
+        F: Fn(Box<[crate::values::ZValue]>) -> Result<Z, E> + 'static,
+        Z: Into<ZVal> + 'static,
+        E: Throwable + 'static,
+    {
+        self.function_entities.push(FunctionEntity::new(
+            name,
+            Rc::new(crate::functions::OwnedFunction::new(handler)),
+        ));
+        self.function_entities.last_mut().unwrap()
+    }
+
     /// Register class to module.
     pub fn add_class<T>(&mut self, class: ClassEntity<T>) -> StateClass<T> {
         let bound_class = class.bound_class();

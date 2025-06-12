@@ -12,7 +12,7 @@
 
 use crate::{
     arrays::{ZArr, ZArray},
-    errors::ExpectTypeError,
+    errors::{ExpectTypeError, UnknownTypeError},
     functions::{ZFunc, call_internal},
     objects::{StateObject, ZObj, ZObject},
     references::ZRef,
@@ -23,12 +23,7 @@ use crate::{
 };
 use phper_alloc::RefClone;
 use std::{
-    ffi::CStr,
-    fmt,
-    fmt::Debug,
-    marker::PhantomData,
-    mem::{ManuallyDrop, MaybeUninit, transmute, zeroed},
-    str,
+    cell::{Ref, RefCell, RefMut}, ffi::CStr, fmt::{self, Debug}, marker::PhantomData, mem::{transmute, zeroed, ManuallyDrop, MaybeUninit}, rc::Rc, str
 };
 
 /// Wrapper of [zend_execute_data].
@@ -549,6 +544,14 @@ impl ZVal {
     pub fn call(&mut self, arguments: impl AsMut<[ZVal]>) -> crate::Result<ZVal> {
         call_internal(self, None, arguments)
     }
+
+    fn gc_copy(&self) -> Self {
+        let mut val = MaybeUninit::<ZVal>::uninit();
+        unsafe {
+            phper_zval_copy(val.as_mut_ptr().cast(), self.as_ptr());
+            val.assume_init()
+        }
+    }
 }
 
 impl Debug for ZVal {
@@ -774,5 +777,69 @@ impl<T: Into<ZVal>> From<Option<T>> for ZVal {
             Some(t) => t.into(),
             None => ().into(),
         }
+    }
+}
+
+impl<T: Into<ZVal>> From<RefCell<T>> for ZVal {
+    fn from(r: RefCell<T>) -> Self {
+        r.into_inner().into()
+    }
+}
+
+#[non_exhaustive]
+pub enum ZValue {
+    Null,
+    Bool(bool),
+    Long(i64),
+    Double(f64),
+    String(ZString),
+    Array(ZArray),
+    Object(ZObject),
+    // Resource(ZResource),
+    // Reference(ZResource),
+}
+
+impl TryFrom<ZVal> for ZValue {
+    type Error = UnknownTypeError;
+
+    fn try_from(val: ZVal) -> Result<Self, Self::Error> {
+        let type_info = val.get_type_info();
+
+        if type_info.is_null() {
+            Ok(Self::Null)
+
+        } else if type_info.is_true() {
+            Ok(Self::Bool(true))
+
+        } else if type_info.is_false() {
+            Ok(Self::Bool(false))
+
+        } else if type_info.is_long() {
+            Ok(Self::Long(unsafe { val.inner.value.lval }))
+
+        } else if type_info.is_double() {
+            Ok(Self::Double(unsafe { val.inner.value.dval }))
+
+        } else if type_info.is_string() {
+            Ok(Self::String(unsafe {
+                ZString::from_raw(val.inner.value.str_.cast())
+            }))
+        } else if type_info.is_array() {
+            Ok(Self::Array(unsafe {
+                ZArray::from_raw(val.inner.value.arr.cast())
+            }))
+        } else if type_info.is_object() {
+            Ok(Self::Object(unsafe {
+                ZObject::from_raw(val.inner.value.obj.cast())
+            }))
+        } else {
+            Err(UnknownTypeError)
+        }
+    }
+}
+
+impl From<ZValue> for ZVal {
+    fn from(value: ZValue) -> Self {
+        todo!()
     }
 }
