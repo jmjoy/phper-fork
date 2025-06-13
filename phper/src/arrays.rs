@@ -10,7 +10,7 @@
 
 //! Apis relate to [zend_array].
 
-use crate::{alloc::EBox, strings::ZStr, sys::*, values::ZVal};
+use crate::{alloc::{EBox, ZRC}, strings::ZStr, sys::*, values::ZVal};
 use derive_more::From;
 use phper_alloc::ToRefOwned;
 use std::{
@@ -18,7 +18,7 @@ use std::{
     marker::PhantomData,
     mem::ManuallyDrop,
     ops::Deref,
-    ptr::null_mut,
+    ptr::{null_mut, NonNull},
 };
 
 /// Key for [ZArr].
@@ -347,27 +347,10 @@ impl Debug for ZArr {
     }
 }
 
-impl ToOwned for ZArr {
-    type Owned = ZArray;
-
-    fn to_owned(&self) -> Self::Owned {
+impl ZRC for ZArr {
+    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
         unsafe {
-            // TODO The source really immutable?
-            let dest = phper_zend_array_dup(self.as_ptr() as *mut _);
-            ZArray::from_raw(dest.cast())
-        }
-    }
-}
-
-impl ToRefOwned for ZArr {
-    type Owned = ZArray;
-
-    fn to_ref_owned(&mut self) -> Self::Owned {
-        let mut val = ManuallyDrop::new(ZVal::default());
-        unsafe {
-            phper_zval_arr(val.as_mut_ptr(), self.as_mut_ptr());
-            phper_z_addref_p(val.as_mut_ptr());
-            ZArray::from_raw(val.as_mut_z_arr().unwrap().as_mut_ptr().cast())
+            Some(NonNull::new(&raw mut this.as_mut().inner.gc).unwrap())
         }
     }
 }
@@ -401,12 +384,6 @@ impl ZArray {
 impl Default for ZArray {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Clone for ZArray {
-    fn clone(&self) -> Self {
-        self.deref().to_owned()
     }
 }
 

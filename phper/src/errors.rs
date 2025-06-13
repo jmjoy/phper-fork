@@ -106,13 +106,13 @@ pub trait Throwable: error::Error {
     /// By default, the Exception is instance of `get_class()`, the code is
     /// `get_code` and message is `get_message`;
     fn to_object(&mut self) -> result::Result<ZObject, Box<dyn Throwable>> {
-        let mut object =
+        let object =
             ZObject::new(self.get_class(), []).map_err(|e| Box::new(e) as Box<dyn Throwable>)?;
         if let Some(code) = self.get_code() {
-            object.set_property("code", code);
+            object.borrow_mut().set_property("code", code);
         }
         if let Some(message) = self.get_message() {
-            object.set_property("message", message);
+            object.borrow_mut().set_property("message", message);
         }
         Ok(object)
     }
@@ -313,7 +313,7 @@ impl ThrowObject {
     ///
     /// Failed if the object is not instance of php `Throwable`.
     pub fn new(obj: ZObject) -> result::Result<Self, NotImplementThrowableError> {
-        if !obj.get_class().is_instance_of(throwable_class()) {
+        if !obj.borrow().get_class().is_instance_of(throwable_class()) {
             return Err(NotImplementThrowableError);
         }
         Ok(Self(obj))
@@ -359,6 +359,7 @@ impl ThrowObject {
 
     fn inner_get_code(&self) -> i64 {
         self.0
+            .borrow()
             .get_property("code")
             .as_long()
             .expect("code isn't long")
@@ -366,6 +367,7 @@ impl ThrowObject {
 
     fn inner_get_message(&self) -> String {
         self.0
+            .borrow()
             .get_property("message")
             .as_z_str()
             .expect("message isn't string")
@@ -386,7 +388,7 @@ impl error::Error for ThrowObject {}
 impl Throwable for ThrowObject {
     #[inline]
     fn get_class(&self) -> &ClassEntry {
-        self.0.get_class()
+        unsafe { ClassEntry::from_ptr((*self.0.borrow().as_ptr()).ce) }
     }
 
     #[inline]
@@ -401,7 +403,7 @@ impl Throwable for ThrowObject {
 
     #[inline]
     fn to_object(&mut self) -> result::Result<ZObject, Box<dyn Throwable>> {
-        Ok(self.0.to_ref_owned())
+        Ok(self.0.clone())
     }
 }
 

@@ -21,7 +21,7 @@ use crate::{
     sys::*,
     types::{ArgumentTypeHint, ReturnTypeHint},
     utils::ensure_end_with_zero,
-    values::{ExecuteData, ZVal, ZValue},
+    values::{ExecuteData, ZVal, Value},
 };
 use phper_alloc::ToRefOwned;
 use std::{
@@ -43,7 +43,7 @@ const INVOKE_MYSTERIOUS_CODE: &[u8] = b"PHPER";
 pub(crate) type HandlerMap = HashMap<(Option<CString>, CString), Rc<dyn Callable>>;
 
 pub(crate) trait Callable {
-    fn call(&self, execute_data: &mut ExecuteData, arguments: &mut [ZVal], return_value: &mut ZVal);
+    fn call(&self, execute_data: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal);
 }
 
 pub(crate) struct Function<F, Z, E>(F, PhantomData<(Z, E)>);
@@ -56,11 +56,11 @@ impl<F, Z, E> Function<F, Z, E> {
 
 impl<F, Z, E> Callable for Function<F, Z, E>
 where
-    F: Fn(&mut [ZVal]) -> Result<Z, E>,
+    F: Fn(Box<[ZVal]>) -> Result<Z, E>,
     Z: Into<ZVal>,
     E: Throwable,
 {
-    fn call(&self, _: &mut ExecuteData, arguments: &mut [ZVal], return_value: &mut ZVal) {
+    fn call(&self, _: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal) {
         match (self.0)(arguments) {
             Ok(z) => {
                 *return_value = z.into();
@@ -70,57 +70,6 @@ where
                     throw(e);
                 }
                 *return_value = ().into();
-            }
-        }
-    }
-}
-
-pub(crate) struct OwnedFunction<F, Z, E>(F, PhantomData<(Z, E)>);
-
-impl<F, Z, E> OwnedFunction<F, Z, E> {
-    pub(crate) fn new(f: F) -> Self {
-        Self(f, PhantomData)
-    }
-}
-
-impl<F, Z, E> Callable for OwnedFunction<F, Z, E>
-where
-    F: Fn(Box<[ZValue]>) -> Result<Z, E>,
-    Z: Into<ZVal>,
-    E: Throwable,
-{
-    fn call(&self, _: &mut ExecuteData, arguments: &mut [ZVal], return_value: &mut ZVal) {
-        fn handle_err(e: impl Throwable, return_value: &mut ZVal) {
-            unsafe {
-                throw(e);
-            }
-            *return_value = ().into();
-        }
-
-        let mut owned_arguments = Vec::with_capacity(arguments.len());
-
-        for arg in arguments {
-            let arg = unsafe {
-                let mut val = (arg as *const ZVal).read();
-                phper_z_try_addref_p(val.as_mut_ptr());
-                val
-            };
-
-            match ZValue::try_from(arg) {
-                Ok(val) => owned_arguments.push(val),
-                Err(err) => {
-                    handle_err(err, return_value);
-                    return;
-                }
-            }
-        }
-
-        match (self.0)(owned_arguments.into_boxed_slice()) {
-            Ok(val) => {
-                *return_value = val.into();
-            }
-            Err(err) => {
-                handle_err(err, return_value);
             }
         }
     }
@@ -136,14 +85,14 @@ impl<F, Z, E, T> Method<F, Z, E, T> {
 
 impl<F, Z, E, T: 'static> Callable for Method<F, Z, E, T>
 where
-    F: Fn(&mut StateObj<T>, &mut [ZVal]) -> Result<Z, E>,
+    F: Fn(StateObject<T>, Box<[ZVal]>) -> Result<Z, E>,
     Z: Into<ZVal>,
     E: Throwable,
 {
     fn call(
-        &self, execute_data: &mut ExecuteData, arguments: &mut [ZVal], return_value: &mut ZVal,
+        &self, execute_data: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal,
     ) {
-        let this = unsafe { execute_data.get_this_mut().unwrap().as_mut_state_obj() };
+        let this = unsafe { StateObject::from_raw_object(execute_data.get_this_mut().unwrap().as_mut_ptr()) };
         match (self.0)(this, arguments) {
             Ok(z) => {
                 *return_value = z.into();
@@ -859,7 +808,7 @@ unsafe extern "C" fn invoke(execute_data: *mut zend_execute_data, return_value: 
         let required_num_args = execute_data.common_required_num_args();
         if num_args < required_num_args {
             let func_name = execute_data.func().get_function_or_method_name();
-            let err: crate::Error = match func_name.to_str() {
+            let err: crate::Error = match func_name.borrow().to_str() {
                 Ok(func_name) => {
                     ArgumentCountError::new(func_name.to_owned(), required_num_args, num_args)
                         .into()
@@ -871,12 +820,11 @@ unsafe extern "C" fn invoke(execute_data: *mut zend_execute_data, return_value: 
             return;
         }
 
-        let mut arguments = execute_data.get_parameters_array();
-        let arguments = arguments.as_mut_slice();
+        let arguments = execute_data.get_parameters_array();
 
         handler.call(
             execute_data,
-            transmute::<&mut [ManuallyDrop<ZVal>], &mut [ZVal]>(arguments),
+            arguments,
             return_value,
         );
     }
@@ -904,12 +852,12 @@ pub fn call(callable: impl Into<ZVal>, arguments: impl AsMut<[ZVal]>) -> crate::
 }
 
 pub(crate) fn call_internal(
-    func: &mut ZVal, mut object: Option<&mut ZObj>, mut arguments: impl AsMut<[ZVal]>,
+    func: &mut ZVal, object: Option<ZObject>, mut arguments: impl AsMut<[ZVal]>,
 ) -> crate::Result<ZVal> {
     let func_ptr = func.as_mut_ptr();
     let arguments = arguments.as_mut();
 
-    let mut object_val = object.as_mut().map(|obj| ZVal::from(obj.to_ref_owned()));
+    let mut object_val = object.as_ref().map(|obj| ZVal::from(obj.clone()));
 
     call_raw_common(|ret| unsafe {
         phper_call_user_function(

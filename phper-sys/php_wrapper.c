@@ -214,6 +214,10 @@ void phper_z_try_addref_p(zval *zv) {
     Z_TRY_ADDREF_P(zv);
 }
 
+uint32_t phper_zend_gc_addref(zend_refcounted_h *p) {
+    return zend_gc_addref(p);
+}
+
 // ==================================================
 // string apis:
 // ==================================================

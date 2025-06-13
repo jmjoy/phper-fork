@@ -11,9 +11,9 @@
 //! Apis relate to [zend_object].
 
 use crate::{
-    alloc::EBox,
+    alloc::{EBox, ZRC},
     classes::ClassEntry,
-    functions::{ZFunc, call_internal, call_raw_common},
+    functions::{call_internal, call_raw_common, ZFunc},
     sys::*,
     values::ZVal,
 };
@@ -23,9 +23,9 @@ use std::{
     ffi::c_void,
     fmt::{self, Debug},
     marker::PhantomData,
-    mem::{ManuallyDrop, replace, size_of},
+    mem::{replace, size_of, ManuallyDrop},
     ops::{Deref, DerefMut},
-    ptr::null_mut,
+    ptr::{null_mut, NonNull},
 };
 
 /// Wrapper of [zend_object].
@@ -210,30 +210,6 @@ impl ZObj {
         }
     }
 
-    /// Call the object method by name.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use phper::{alloc::EBox, classes::ClassEntry, values::ZVal};
-    ///
-    /// fn example() -> phper::Result<ZVal> {
-    ///     let mut memcached = ClassEntry::from_globals("Memcached")?.new_object(&mut [])?;
-    ///     memcached.call(
-    ///         "addServer",
-    ///         &mut [ZVal::from("127.0.0.1"), ZVal::from(11211)],
-    ///     )?;
-    ///     let r = memcached.call("get", &mut [ZVal::from("hello")])?;
-    ///     Ok(r)
-    /// }
-    /// ```
-    pub fn call(
-        &mut self, method_name: &str, arguments: impl AsMut<[ZVal]>,
-    ) -> crate::Result<ZVal> {
-        let mut method = method_name.into();
-        call_internal(&mut method, Some(self), arguments)
-    }
-
     pub(crate) fn call_construct(&mut self, arguments: impl AsMut<[ZVal]>) -> crate::Result<()> {
         unsafe {
             let Some(get_constructor) = (*self.inner.handlers).get_constructor else {
@@ -274,22 +250,17 @@ impl Drop for ZObj {
     }
 }
 
-impl ToRefOwned for ZObj {
-    type Owned = ZObject;
-
-    fn to_ref_owned(&mut self) -> Self::Owned {
-        let mut val = ManuallyDrop::new(ZVal::default());
-        unsafe {
-            phper_zval_obj(val.as_mut_ptr(), self.as_mut_ptr());
-            phper_z_addref_p(val.as_mut_ptr());
-            ZObject::from_raw(val.as_mut_z_obj().unwrap().as_mut_ptr().cast())
-        }
-    }
-}
-
 impl Debug for ZObj {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         common_fmt(self, f, "ZObj")
+    }
+}
+
+impl ZRC for ZObj {
+    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+        unsafe {
+            Some(NonNull::new(&raw mut this.as_mut().inner.gc).unwrap())
+        }
     }
 }
 
@@ -318,12 +289,29 @@ impl ZObject {
     pub fn new_by_std_class() -> Self {
         Self::new_by_class_name("stdclass", &mut []).unwrap()
     }
-}
 
-impl RefClone for ZObject {
-    #[inline]
-    fn ref_clone(&mut self) -> Self {
-        self.to_ref_owned()
+    /// Call the object method by name.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use phper::{alloc::EBox, classes::ClassEntry, values::ZVal};
+    ///
+    /// fn example() -> phper::Result<ZVal> {
+    ///     let mut memcached = ClassEntry::from_globals("Memcached")?.new_object(&mut [])?;
+    ///     memcached.call(
+    ///         "addServer",
+    ///         &mut [ZVal::from("127.0.0.1"), ZVal::from(11211)],
+    ///     )?;
+    ///     let r = memcached.call("get", &mut [ZVal::from("hello")])?;
+    ///     Ok(r)
+    /// }
+    /// ```
+    pub fn call(
+        self, method_name: &str, arguments: impl AsMut<[ZVal]>,
+    ) -> crate::Result<ZVal> {
+        let mut method = method_name.into();
+        call_internal(&mut method, Some(self), arguments)
     }
 }
 
@@ -427,6 +415,14 @@ impl<T> Debug for StateObj<T> {
     }
 }
 
+impl<T> ZRC for StateObj<T> {
+    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+        unsafe {
+            Some(NonNull::new(&raw mut this.as_mut().object.inner.gc).unwrap())
+        }
+    }
+}
+
 /// An owned PHP object with associated Rust state.
 ///
 /// `StateObject<T>` represents an owned PHP object that contains additional
@@ -436,13 +432,13 @@ pub type StateObject<T> = EBox<StateObj<T>>;
 
 impl<T> StateObject<T> {
     #[inline]
-    pub(crate) fn from_raw_object(object: *mut zend_object) -> Self {
+    pub(crate) unsafe fn from_raw_object(object: *mut zend_object) -> Self {
         unsafe { Self::from_raw(StateObj::from_mut_object_ptr(object)) }
     }
 
     #[inline]
     pub(crate) fn into_raw_object(self) -> *mut zend_object {
-        ManuallyDrop::new(self).as_mut_ptr()
+        ManuallyDrop::new(self).borrow_mut().as_mut_ptr()
     }
 
     /// Converts into [ZObject].
@@ -458,13 +454,13 @@ impl<T: 'static> StateObject<T> {
     /// therefore, you can only obtain state ownership when the refcount of the
     /// [zend_object] is `1`, otherwise, it will return
     /// `None`.
-    pub fn into_state(mut self) -> Option<T> {
+    pub fn into_state(self) -> Option<T> {
         unsafe {
-            if self.gc_refcount() != 1 {
+            if self.borrow().gc_refcount() != 1 {
                 return None;
             }
             let null: AnyState = Box::into_raw(Box::new(()));
-            let ptr = replace(self.as_mut_any_state(), null);
+            let ptr = replace(self.borrow_mut().as_mut_any_state(), null);
             Some(*Box::from_raw(ptr).downcast().unwrap())
         }
     }

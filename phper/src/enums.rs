@@ -260,10 +260,10 @@ impl Enum {
         unsafe {
             let ce = self.as_class_entry().as_ptr() as *mut _;
             let case_name_str = case_name.as_ref();
-            let mut name_zstr = ZString::new(case_name_str);
+            let name_zstr = ZString::new(case_name_str);
 
             // Get the enum case
-            let case_obj = zend_enum_get_case(ce, name_zstr.as_mut_ptr());
+            let case_obj = zend_enum_get_case(ce, name_zstr.borrow_mut().as_mut_ptr());
 
             // Convert to &ZObj
             Ok(ZObj::from_ptr(case_obj))
@@ -296,10 +296,10 @@ impl Enum {
         unsafe {
             let ce = self.as_class_entry().as_ptr() as *mut _;
             let case_name_str = case_name.as_ref();
-            let mut name_zstr = ZString::new(case_name_str);
+            let name_zstr = ZString::new(case_name_str);
 
             // Get the enum case
-            let case_obj = zend_enum_get_case(ce, name_zstr.as_mut_ptr());
+            let case_obj = zend_enum_get_case(ce, name_zstr.borrow_mut().as_mut_ptr());
 
             // Convert to &mut ZObj
             Ok(ZObj::from_mut_ptr(case_obj as *mut _))
@@ -389,7 +389,7 @@ impl<B: EnumBackingType> EnumEntity<B> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(&mut [ZVal]) -> Result<Z, E> + 'static,
+        F: Fn(Box<[ZVal]>) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {

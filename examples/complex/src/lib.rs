@@ -12,22 +12,22 @@ use phper::{
     arrays::ZArray,
     classes::{ClassEntity, Visibility},
     functions::Argument,
-    ini::{Policy, ini_get},
+    ini::{ini_get, Policy},
     modules::Module,
-    objects::StateObj,
+    objects::{StateObj, StateObject},
     php_get_module,
     values::ZVal,
 };
 use std::{convert::Infallible, ffi::CStr};
 
-fn say_hello(arguments: &mut [ZVal]) -> phper::Result<String> {
+fn say_hello(mut arguments: Box<[ZVal]>) -> phper::Result<String> {
     let name = &mut arguments[0];
     name.convert_to_string();
     let name = name.as_z_str().unwrap().to_str()?;
     Ok(format!("Hello, {}!\n", name))
 }
 
-fn throw_exception(_: &mut [ZVal]) -> phper::Result<()> {
+fn throw_exception(_: Box<[ZVal]>) -> phper::Result<()> {
     Err(phper::Error::Boxed("I am sorry".into()))
 }
 
@@ -60,14 +60,14 @@ pub fn get_module() -> Module {
         .add_function("complex_say_hello", say_hello)
         .argument(Argument::new("name"));
     module.add_function("complex_throw_exception", throw_exception);
-    module.add_function("complex_get_all_ini", |_: &mut [ZVal]| {
-        let mut arr = ZArray::new();
+    module.add_function("complex_get_all_ini", |_: Box<[ZVal]>| {
+        let arr = ZArray::new();
 
         let complex_enable = ZVal::from(ini_get::<bool>("complex.enable"));
-        arr.insert("complex.enable", complex_enable);
+        arr.borrow_mut().insert("complex.enable", complex_enable);
 
         let complex_description = ZVal::from(ini_get::<Option<&CStr>>("complex.description"));
-        arr.insert("complex.description", complex_description);
+        arr.borrow_mut().insert("complex.description", complex_description);
         Ok::<_, Infallible>(arr)
     });
 
@@ -77,8 +77,8 @@ pub fn get_module() -> Module {
     foo_class.add_method(
         "getFoo",
         Visibility::Public,
-        |this: &mut StateObj<()>, _: &mut [ZVal]| {
-            let prop = this.get_property("foo");
+        |this: StateObject<()>, _: Box<[ZVal]>| {
+            let prop = this.borrow().get_property("foo");
             Ok::<_, phper::Error>(prop.clone())
         },
     );
@@ -86,8 +86,8 @@ pub fn get_module() -> Module {
         .add_method(
             "setFoo",
             Visibility::Public,
-            |this: &mut StateObj<()>, arguments: &mut [ZVal]| -> phper::Result<()> {
-                this.set_property("foo", arguments[0].clone());
+            |this: StateObject<()>, arguments: Box<[ZVal]>| -> phper::Result<()> {
+                this.borrow_mut().set_property("foo", arguments[0].clone());
                 Ok(())
             },
         )

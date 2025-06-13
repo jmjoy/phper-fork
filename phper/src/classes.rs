@@ -128,8 +128,8 @@ impl ClassEntry {
     /// If the `__construct` is private, or protected and the called scope isn't
     /// parent class, it will throw PHP Error.
     pub fn new_object(&self, arguments: impl AsMut<[ZVal]>) -> crate::Result<ZObject> {
-        let mut object = self.init_object()?;
-        object.call_construct(arguments)?;
+        let object = self.init_object()?;
+        object.borrow_mut().call_construct(arguments)?;
         Ok(object)
     }
 
@@ -336,7 +336,7 @@ impl<T: 'static> StateClass<T> {
             .new_object(arguments)
             .map(ZObject::into_raw)
             .map(|ptr| ptr.cast())
-            .map(StateObject::<T>::from_raw_object)
+            .map(|ptr| unsafe { StateObject::<T>::from_raw_object(ptr) })
     }
 
     /// Create the object from class, without calling `__construct`.
@@ -347,7 +347,7 @@ impl<T: 'static> StateClass<T> {
             .init_object()
             .map(ZObject::into_raw)
             .map(|ptr| ptr.cast())
-            .map(StateObject::<T>::from_raw_object)
+            .map(|ptr| unsafe { StateObject::<T>::from_raw_object(ptr) })
     }
 }
 
@@ -506,7 +506,7 @@ impl<T: 'static> ClassEntity<T> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(&mut StateObj<T>, &mut [ZVal]) -> Result<Z, E> + 'static,
+        F: Fn(StateObject<T>, Box<[ZVal]>) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {
@@ -523,7 +523,7 @@ impl<T: 'static> ClassEntity<T> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(&mut [ZVal]) -> Result<Z, E> + 'static,
+        F: Fn(Box<[ZVal]>) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {

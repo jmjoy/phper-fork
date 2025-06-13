@@ -10,16 +10,10 @@
 
 //! Apis relate to [zend_string].
 
-use crate::{alloc::EBox, sys::*};
+use crate::{alloc::{EBox, ZRC}, sys::*};
 use phper_alloc::ToRefOwned;
 use std::{
-    borrow::Cow,
-    ffi::{CStr, FromBytesWithNulError},
-    fmt::{self, Debug},
-    marker::PhantomData,
-    os::raw::c_char,
-    slice::from_raw_parts,
-    str::{self, Utf8Error},
+    borrow::Cow, ffi::{CStr, FromBytesWithNulError}, fmt::{self, Debug}, marker::PhantomData, os::raw::c_char, ptr::NonNull, slice::from_raw_parts, str::{self, Utf8Error}
 };
 
 /// Like str, CStr for [zend_string].
@@ -161,21 +155,10 @@ impl<Rhs: AsRef<[u8]>> PartialEq<Rhs> for ZStr {
     }
 }
 
-impl ToOwned for ZStr {
-    type Owned = ZString;
-
-    fn to_owned(&self) -> Self::Owned {
-        ZString::new(self.to_bytes())
-    }
-}
-
-impl ToRefOwned for ZStr {
-    type Owned = ZString;
-
-    fn to_ref_owned(&mut self) -> Self::Owned {
+impl ZRC for ZStr {
+    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
         unsafe {
-            let ptr = phper_zend_string_copy(self.as_mut_ptr());
-            ZString::from_raw(ptr.cast())
+            Some(NonNull::new(&raw mut this.as_mut().inner.gc).unwrap())
         }
     }
 }
@@ -214,28 +197,9 @@ impl ZString {
     }
 }
 
-impl Clone for ZString {
-    fn clone(&self) -> Self {
-        unsafe {
-            let ptr = phper_zend_string_init(
-                phper_zstr_val(self.as_ptr()),
-                phper_zstr_len(self.as_ptr()).try_into().unwrap(),
-                false.into(),
-            );
-            Self::from_raw(ZStr::from_mut_ptr(ptr.cast()))
-        }
-    }
-}
-
-impl AsRef<[u8]> for ZString {
-    fn as_ref(&self) -> &[u8] {
-        self.to_bytes()
-    }
-}
-
 impl<Rhs: AsRef<[u8]>> PartialEq<Rhs> for ZString {
     fn eq(&self, other: &Rhs) -> bool {
-        AsRef::<[u8]>::as_ref(self) == other.as_ref()
+        self.borrow().to_bytes() == other.as_ref()
     }
 }
 
@@ -251,5 +215,3 @@ fn common_fmt(this: &ZStr, f: &mut fmt::Formatter<'_>, name: &str) -> fmt::Resul
     };
     d.finish()
 }
-
-Gc

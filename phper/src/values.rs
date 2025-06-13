@@ -11,19 +11,11 @@
 //! Apis relate to [zval].
 
 use crate::{
-    arrays::{ZArr, ZArray},
-    errors::{ExpectTypeError, UnknownTypeError},
-    functions::{ZFunc, call_internal},
-    objects::{StateObject, ZObj, ZObject},
-    references::ZRef,
-    resources::ZRes,
-    strings::{ZStr, ZString},
-    sys::*,
-    types::TypeInfo,
+    alloc::{EBox, ZRC}, arrays::{ZArr, ZArray}, errors::{ExpectTypeError, UnknownTypeError}, functions::{call_internal, ZFunc}, objects::{StateObject, ZObj, ZObject}, references::ZRef, resources::ZRes, strings::{ZStr, ZString}, sys::*, types::TypeInfo
 };
 use phper_alloc::RefClone;
 use std::{
-    cell::{Ref, RefCell, RefMut}, ffi::CStr, fmt::{self, Debug}, marker::PhantomData, mem::{transmute, zeroed, ManuallyDrop, MaybeUninit}, rc::Rc, str
+    cell::{Ref, RefCell, RefMut}, ffi::CStr, fmt::{self, Debug}, marker::PhantomData, mem::{transmute, zeroed, ManuallyDrop, MaybeUninit}, ptr::NonNull, rc::Rc, str
 };
 
 /// Wrapper of [zend_execute_data].
@@ -141,17 +133,21 @@ impl ExecuteData {
         }
     }
 
-    pub(crate) unsafe fn get_parameters_array(&mut self) -> Vec<ManuallyDrop<ZVal>> {
+    pub(crate) unsafe fn get_parameters_array(&mut self) -> Box<[ZVal]> {
         unsafe {
             let num_args = self.num_args();
-            let mut arguments = vec![zeroed::<zval>(); num_args];
+            let mut arguments = <Box<[ZVal]>>::new_uninit_slice(num_args);
             if num_args > 0 {
                 phper_zend_get_parameters_array_ex(
                     num_args.try_into().unwrap(),
-                    arguments.as_mut_ptr(),
+                    arguments.as_mut_ptr().cast(),
                 );
             }
-            transmute(arguments)
+            let mut arguments = arguments.assume_init();
+            for argument in &mut arguments {
+                phper_z_try_addref_p(argument.as_mut_ptr());
+            }
+            arguments
         }
     }
 
@@ -552,6 +548,10 @@ impl ZVal {
             val.assume_init()
         }
     }
+
+    pub fn try_into_value(self) -> Result<Value, UnknownTypeError> {
+        self.try_into()
+    }
 }
 
 impl Debug for ZVal {
@@ -786,8 +786,9 @@ impl<T: Into<ZVal>> From<RefCell<T>> for ZVal {
     }
 }
 
+#[derive(Clone, Debug)]
 #[non_exhaustive]
-pub enum ZValue {
+pub enum Value {
     Null,
     Bool(bool),
     Long(i64),
@@ -799,7 +800,7 @@ pub enum ZValue {
     // Reference(ZResource),
 }
 
-impl TryFrom<ZVal> for ZValue {
+impl TryFrom<ZVal> for Value {
     type Error = UnknownTypeError;
 
     fn try_from(val: ZVal) -> Result<Self, Self::Error> {
@@ -838,8 +839,16 @@ impl TryFrom<ZVal> for ZValue {
     }
 }
 
-impl From<ZValue> for ZVal {
-    fn from(value: ZValue) -> Self {
-        todo!()
+impl From<Value> for ZVal {
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => ().into(),
+            Value::Bool(b) => b.into(),
+            Value::Long(l) => l.into(),
+            Value::Double(d) => d.into(),
+            Value::String(s) => s.into(),
+            Value::Array(a) => a.into(),
+            Value::Object(o) => o.into(),
+        }
     }
 }

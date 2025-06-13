@@ -37,7 +37,7 @@ pub fn make_client_builder_class(client_class: ClientClass) -> ClassEntity<Clien
             let state = this.as_mut_state();
             let builder: ClientBuilder = take(state);
             *state = builder.timeout(Duration::from_millis(ms as u64));
-            Ok::<_, phper::Error>(this.to_ref_owned())
+            Ok::<_, phper::Error>(this)
         })
         .argument(Argument::new("ms"));
 
