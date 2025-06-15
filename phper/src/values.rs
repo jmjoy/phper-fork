@@ -549,8 +549,8 @@ impl ZVal {
         }
     }
 
-    pub fn try_into_value(self) -> Result<Value, UnknownTypeError> {
-        self.try_into()
+    pub fn into_value(self) -> Value {
+        self.into()
     }
 }
 
@@ -617,30 +617,20 @@ impl Default for ZVal {
     }
 }
 
-impl Clone for ZVal {
-    fn clone(&self) -> Self {
-        let mut val = ZVal::default();
-        unsafe {
-            phper_zval_copy(val.as_mut_ptr(), self.as_ptr());
-            if val.get_type_info().is_string() {
-                phper_separate_string(val.as_mut_ptr());
-            } else if val.get_type_info().is_array() {
-                phper_separate_array(val.as_mut_ptr());
-            }
-        }
-        val
-    }
-}
-
-impl RefClone for ZVal {
-    fn ref_clone(&mut self) -> Self {
-        let mut val = ZVal::default();
-        unsafe {
-            phper_zval_copy(val.as_mut_ptr(), self.as_ptr());
-        }
-        val
-    }
-}
+// impl Clone for ZVal {
+//     fn clone(&self) -> Self {
+//         let mut val = ZVal::default();
+//         unsafe {
+//             phper_zval_copy(val.as_mut_ptr(), self.as_ptr());
+//             if val.get_type_info().is_string() {
+//                 phper_separate_string(val.as_mut_ptr());
+//             } else if val.get_type_info().is_array() {
+//                 phper_separate_array(val.as_mut_ptr());
+//             }
+//         }
+//         val
+//     }
+// }
 
 impl Drop for ZVal {
     fn drop(&mut self) {
@@ -786,6 +776,27 @@ impl<T: Into<ZVal>> From<RefCell<T>> for ZVal {
     }
 }
 
+impl ZRC for ZVal {
+    unsafe fn rc(this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+        if phper_z_type_info_refcounted(this.as_ptr()) {
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
+pub type ZValue = EBox<ZVal>;
+
+impl From<ZValue> for ZVal {
+    fn from(value: ZValue) -> Self {
+        unsafe {
+            let ptr  = ZValue::into_raw(value);
+            ptr.read()
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Value {
@@ -800,41 +811,39 @@ pub enum Value {
     // Reference(ZResource),
 }
 
-impl TryFrom<ZVal> for Value {
-    type Error = UnknownTypeError;
-
-    fn try_from(val: ZVal) -> Result<Self, Self::Error> {
+impl From<ZVal> for Value {
+    fn from(val: ZVal) -> Self {
         let type_info = val.get_type_info();
 
         if type_info.is_null() {
-            Ok(Self::Null)
+            Self::Null
 
         } else if type_info.is_true() {
-            Ok(Self::Bool(true))
+            Self::Bool(true)
 
         } else if type_info.is_false() {
-            Ok(Self::Bool(false))
+            Self::Bool(false)
 
         } else if type_info.is_long() {
-            Ok(Self::Long(unsafe { val.inner.value.lval }))
+            Self::Long(unsafe { val.inner.value.lval })
 
         } else if type_info.is_double() {
-            Ok(Self::Double(unsafe { val.inner.value.dval }))
+            Self::Double(unsafe { val.inner.value.dval })
 
         } else if type_info.is_string() {
-            Ok(Self::String(unsafe {
+            Self::String(unsafe {
                 ZString::from_raw(val.inner.value.str_.cast())
-            }))
+            })
         } else if type_info.is_array() {
-            Ok(Self::Array(unsafe {
+            Self::Array(unsafe {
                 ZArray::from_raw(val.inner.value.arr.cast())
-            }))
+            })
         } else if type_info.is_object() {
-            Ok(Self::Object(unsafe {
+            Self::Object(unsafe {
                 ZObject::from_raw(val.inner.value.obj.cast())
-            }))
+            })
         } else {
-            Err(UnknownTypeError)
+            unreachable!("unknown zval type");
         }
     }
 }

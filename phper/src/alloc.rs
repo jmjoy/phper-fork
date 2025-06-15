@@ -25,12 +25,12 @@ use phper_sys::{zend_refcounted_h, phper_zend_gc_addref};
 /// `EBox<T>` provides owned access to values allocated in PHP's memory
 /// management system. It automatically handles deallocation when dropped,
 /// ensuring proper cleanup of PHP resources.
-pub struct EBox<T: ZRC> {
+pub struct EBox<T> {
     ptr: NonNull<T>,
     cell: RefCell<()>,
 }
 
-impl<T: ZRC> EBox<T> {
+impl<T> EBox<T> {
     /// Constructs from a raw pointer.
     ///
     /// # Safety
@@ -51,6 +51,18 @@ impl<T: ZRC> EBox<T> {
         //     map.remove(&(b.ptr.as_ptr() as usize));
         // });
         ManuallyDrop::new(b).ptr.as_ptr()
+    }
+
+    pub(crate) unsafe fn from_raw_cast<U>(raw: *mut U) -> Self {
+        const { assert!(size_of::<U>() == size_of::<T>()); }
+        unsafe {
+            Self::from_raw(raw.cast())
+        }
+    }
+
+    pub(crate) unsafe fn into_raw_cast<U>(b: EBox<T>) -> *mut U {
+        const { assert!(size_of::<U>() == size_of::<T>()); }
+        ManuallyDrop::new(b).ptr.as_ptr().cast()
     }
 
     pub fn borrow(&self) -> ERef<'_, T> {
@@ -92,7 +104,7 @@ impl<T: ZRC> EBox<T> {
     }
 }
 
-impl<T: ZRC> Drop for EBox<T> {
+impl<T> Drop for EBox<T> {
     fn drop(&mut self) {
         // REF_CELL_MAP.with_borrow_mut(|map| {
         //     map.remove(&(self.ptr.as_ptr() as usize));
@@ -103,7 +115,7 @@ impl<T: ZRC> Drop for EBox<T> {
     }
 }
 
-impl<T: ZRC + Debug> Debug for EBox<T> {
+impl<T: Debug> Debug for EBox<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("EBox");
         match self.try_borrow() {

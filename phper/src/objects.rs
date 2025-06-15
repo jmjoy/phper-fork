@@ -15,7 +15,7 @@ use crate::{
     classes::ClassEntry,
     functions::{call_internal, call_raw_common, ZFunc},
     sys::*,
-    values::ZVal,
+    values::{Value, ZVal, ZValue},
 };
 use phper_alloc::{RefClone, ToRefOwned};
 use std::{
@@ -126,9 +126,18 @@ impl ZObj {
         unsafe { ClassEntry::from_ptr(self.inner.ce) }
     }
 
-    /// Get the mutable class reference of object.
+    /// Get the mutable class reference of object
     pub fn get_mut_class(&mut self) -> &mut ClassEntry {
         unsafe { ClassEntry::from_mut_ptr(self.inner.ce) }
+    }
+
+    pub fn get_owned_property(&self, name: impl AsRef<str>) -> ZValue {
+        let object = self.as_ptr() as *mut _;
+        let prop = Self::inner_get_property(self.inner.ce, object, name);
+        unsafe {
+            phper_z_try_addref_p(prop);
+            ZValue::from_raw_cast(prop)
+        }
     }
 
     /// Get the property by name of object.

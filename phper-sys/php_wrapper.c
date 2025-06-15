@@ -218,6 +218,10 @@ uint32_t phper_zend_gc_addref(zend_refcounted_h *p) {
     return zend_gc_addref(p);
 }
 
+bool phper_z_type_info_refcounted(uint32_t type_info) {
+    return Z_TYPE_INFO_REFCOUNTED(type_info);
+}
+
 // ==================================================
 // string apis:
 // ==================================================

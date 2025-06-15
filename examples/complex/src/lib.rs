@@ -78,8 +78,8 @@ pub fn get_module() -> Module {
         "getFoo",
         Visibility::Public,
         |this: StateObject<()>, _: Box<[ZVal]>| {
-            let prop = this.borrow().get_property("foo");
-            Ok::<_, phper::Error>(prop.clone())
+            let prop = this.borrow().get_owned_property("foo");
+            Ok::<_, phper::Error>(prop)
         },
     );
     foo_class
@@ -87,7 +87,7 @@ pub fn get_module() -> Module {
             "setFoo",
             Visibility::Public,
             |this: StateObject<()>, arguments: Box<[ZVal]>| -> phper::Result<()> {
-                this.borrow_mut().set_property("foo", arguments[0].clone());
+                this.borrow_mut().set_property("foo", arguments[0]);
                 Ok(())
             },
         )
