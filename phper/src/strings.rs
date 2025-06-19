@@ -156,9 +156,9 @@ impl<Rhs: AsRef<[u8]>> PartialEq<Rhs> for ZStr {
 }
 
 impl ZRC for ZStr {
-    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+    unsafe fn rc(mut this: NonNull<Self>) -> NonNull<zend_refcounted_h> {
         unsafe {
-            Some(NonNull::new(&raw mut this.as_mut().inner.gc).unwrap())
+            NonNull::new(&raw mut this.as_mut().inner.gc).unwrap()
         }
     }
 }

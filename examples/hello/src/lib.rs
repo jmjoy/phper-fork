@@ -11,7 +11,7 @@
 use phper::{echo, functions::Argument, modules::Module, php_get_module, values::ZVal};
 
 /// The php function, receive arguments with type `ZVal`.
-fn say_hello(arguments: Box<[ZVal]>) -> phper::Result<()> {
+fn say_hello(arguments: &[ZVal]) -> phper::Result<()> {
     // Get the first argument, expect the type `ZStr`, and convert to Rust utf-8
     // str.
     let name = arguments[0].expect_z_str()?.to_str()?;

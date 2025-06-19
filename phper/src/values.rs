@@ -11,11 +11,11 @@
 //! Apis relate to [zval].
 
 use crate::{
-    alloc::{EBox, ZRC}, arrays::{ZArr, ZArray}, errors::{ExpectTypeError, UnknownTypeError}, functions::{call_internal, ZFunc}, objects::{StateObject, ZObj, ZObject}, references::ZRef, resources::ZRes, strings::{ZStr, ZString}, sys::*, types::TypeInfo
+    alloc::{EBox, ERef, ERefMut, ZRC}, arrays::{ZArr, ZArray}, errors::{ExpectTypeError, UnknownTypeError}, functions::{call_internal, ZFunc}, objects::{StateObject, ZObj, ZObject}, references::ZRef, resources::ZRes, strings::{ZStr, ZString}, sys::*, types::TypeInfo
 };
 use phper_alloc::RefClone;
 use std::{
-    cell::{Ref, RefCell, RefMut}, ffi::CStr, fmt::{self, Debug}, marker::PhantomData, mem::{transmute, zeroed, ManuallyDrop, MaybeUninit}, ptr::NonNull, rc::Rc, str
+    cell::{Ref, RefCell, RefMut}, collections::HashMap, ffi::CStr, fmt::{self, Debug}, marker::PhantomData, mem::{transmute, zeroed, ManuallyDrop, MaybeUninit}, ops::Deref, os::unix::thread, ptr::NonNull, rc::Rc, str
 };
 
 /// Wrapper of [zend_execute_data].
@@ -133,20 +133,17 @@ impl ExecuteData {
         }
     }
 
-    pub(crate) unsafe fn get_parameters_array(&mut self) -> Box<[ZVal]> {
+    pub(crate) unsafe fn get_parameters_array(&mut self) -> Box<[ManuallyDrop<ZVal>]> {
         unsafe {
             let num_args = self.num_args();
-            let mut arguments = <Box<[ZVal]>>::new_uninit_slice(num_args);
+            let mut arguments = <Box<[ManuallyDrop<ZVal>]>>::new_uninit_slice(num_args);
             if num_args > 0 {
                 phper_zend_get_parameters_array_ex(
                     num_args.try_into().unwrap(),
                     arguments.as_mut_ptr().cast(),
                 );
             }
-            let mut arguments = arguments.assume_init();
-            for argument in &mut arguments {
-                phper_z_try_addref_p(argument.as_mut_ptr());
-            }
+            let arguments = arguments.assume_init();
             arguments
         }
     }
@@ -552,6 +549,8 @@ impl ZVal {
     pub fn into_value(self) -> Value {
         self.into()
     }
+
+
 }
 
 impl Debug for ZVal {
@@ -610,50 +609,55 @@ impl Debug for ZVal {
     }
 }
 
-impl Default for ZVal {
+impl Default for ZValue {
     #[inline]
     fn default() -> Self {
-        ZVal::from(())
+        ZValue::from(())
     }
 }
 
-// impl Clone for ZVal {
-//     fn clone(&self) -> Self {
-//         let mut val = ZVal::default();
-//         unsafe {
-//             phper_zval_copy(val.as_mut_ptr(), self.as_ptr());
-//             if val.get_type_info().is_string() {
-//                 phper_separate_string(val.as_mut_ptr());
-//             } else if val.get_type_info().is_array() {
-//                 phper_separate_array(val.as_mut_ptr());
-//             }
-//         }
-//         val
-//     }
-// }
+impl Clone for ZValue {
+    fn clone(&self) -> Self {
+        let mut val = MaybeUninit::<zval>::uninit();
+        unsafe {
+            phper_zval_copy(val.as_mut_ptr(), self.as_ptr());
+            // if val.get_type_info().is_string() {
+            //     phper_separate_string(val.as_mut_ptr());
+            // } else if val.get_type_info().is_array() {
+            //     phper_separate_array(val.as_mut_ptr());
+            // }
+        }
+        unsafe { transmute(val.assume_init()) }
+    }
+}
 
 impl Drop for ZVal {
     fn drop(&mut self) {
         unsafe {
             phper_zval_ptr_dtor(self.as_mut_ptr());
+
+            let ptr = &raw const *self;
+            REF_CELL_MAP.with_borrow_mut(|map| {
+                map.remove(&(ptr as usize));
+            });
         }
     }
 }
 
-impl From<()> for ZVal {
+impl From<()> for ZValue {
     fn from(_: ()) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_null(val.as_mut_ptr().cast());
             val.assume_init()
         }
     }
 }
 
-impl From<bool> for ZVal {
+impl From<bool> for ZValue {
     fn from(b: bool) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             if b {
                 phper_zval_true(val.as_mut_ptr().cast());
             } else {
@@ -664,33 +668,33 @@ impl From<bool> for ZVal {
     }
 }
 
-impl From<i64> for ZVal {
+impl From<i64> for ZValue {
     #[allow(clippy::useless_conversion)]
     fn from(i: i64) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_long(val.as_mut_ptr().cast(), i.try_into().unwrap());
             val.assume_init()
         }
     }
 }
 
-impl From<f64> for ZVal {
+impl From<f64> for ZValue {
     #[allow(clippy::useless_conversion)]
     fn from(f: f64) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_double(val.as_mut_ptr().cast(), f.try_into().unwrap());
             val.assume_init()
         }
     }
 }
 
-impl From<&[u8]> for ZVal {
+impl From<&[u8]> for ZValue {
     #[allow(clippy::useless_conversion)]
     fn from(b: &[u8]) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_stringl(
                 val.as_mut_ptr().cast(),
                 b.as_ptr().cast(),
@@ -701,67 +705,67 @@ impl From<&[u8]> for ZVal {
     }
 }
 
-impl From<Vec<u8>> for ZVal {
+impl From<Vec<u8>> for ZValue {
     fn from(b: Vec<u8>) -> Self {
-        ZVal::from(&b[..])
+        ZValue::from(&b[..])
     }
 }
 
-impl From<&str> for ZVal {
+impl From<&str> for ZValue {
     fn from(s: &str) -> Self {
-        ZVal::from(s.as_bytes())
+        ZValue::from(s.as_bytes())
     }
 }
 
-impl From<&CStr> for ZVal {
+impl From<&CStr> for ZValue {
     fn from(s: &CStr) -> Self {
-        ZVal::from(s.to_bytes())
+        ZValue::from(s.to_bytes())
     }
 }
 
-impl From<String> for ZVal {
+impl From<String> for ZValue {
     fn from(s: String) -> Self {
-        ZVal::from(s.as_bytes())
+        ZValue::from(s.as_bytes())
     }
 }
 
-impl From<ZString> for ZVal {
+impl From<ZString> for ZValue {
     fn from(s: ZString) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_str(val.as_mut_ptr().cast(), ZString::into_raw(s).cast());
             val.assume_init()
         }
     }
 }
 
-impl From<ZArray> for ZVal {
+impl From<ZArray> for ZValue {
     fn from(arr: ZArray) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_arr(val.as_mut_ptr().cast(), ZArray::into_raw(arr).cast());
             val.assume_init()
         }
     }
 }
 
-impl From<ZObject> for ZVal {
+impl From<ZObject> for ZValue {
     fn from(obj: ZObject) -> Self {
         unsafe {
-            let mut val = MaybeUninit::<ZVal>::uninit();
+            let mut val = MaybeUninit::<ZValue>::uninit();
             phper_zval_obj(val.as_mut_ptr().cast(), ZObject::into_raw(obj).cast());
             val.assume_init()
         }
     }
 }
 
-impl<T> From<StateObject<T>> for ZVal {
+impl<T> From<StateObject<T>> for ZValue {
     fn from(obj: StateObject<T>) -> Self {
-        ZVal::from(obj.into_z_object())
+        ZValue::from(obj.into_z_object())
     }
 }
 
-impl<T: Into<ZVal>> From<Option<T>> for ZVal {
+impl<T: Into<ZValue>> From<Option<T>> for ZValue {
     fn from(o: Option<T>) -> Self {
         match o {
             Some(t) => t.into(),
@@ -770,32 +774,105 @@ impl<T: Into<ZVal>> From<Option<T>> for ZVal {
     }
 }
 
-impl<T: Into<ZVal>> From<RefCell<T>> for ZVal {
-    fn from(r: RefCell<T>) -> Self {
-        r.into_inner().into()
-    }
+pub struct ZValue {
+    inner: ZVal,
+    cell: RefCell<()>,
 }
 
-impl ZRC for ZVal {
-    unsafe fn rc(this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
-        if phper_z_type_info_refcounted(this.as_ptr()) {
-            Some(())
-        } else {
-            None
+impl ZValue {
+    pub fn borrow(&self) -> ERef<'_, ZVal> {
+        let ptr = (&raw const *self) as *mut ZVal;
+        let cell = REF_CELL_MAP.with_borrow_mut(|map| {
+            map.entry(ptr as usize).or_default() as *const RefCell<()>
+        });
+        ERef {
+            ptr: NonNull::new(ptr).unwrap(),
+            borrow: unsafe { cell.as_ref().unwrap().borrow() },
+        }
+    }
+
+    pub fn borrow_mut(&self) -> ERefMut<'_, ZVal> {
+        let ptr = (&raw const *self) as *mut ZVal;
+        let cell = REF_CELL_MAP.with_borrow_mut(|map| {
+            map.entry(ptr as usize).or_default() as *const RefCell<()>
+        });
+        ERefMut {
+            ptr: NonNull::new(ptr).unwrap(),
+            borrow: unsafe { cell.as_ref().unwrap().borrow_mut() },
         }
     }
 }
 
-pub type ZValue = EBox<ZVal>;
+// impl ZRC for ZVal {
+//     unsafe fn rc(this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+//         if phper_z_type_info_refcounted(this.as_ptr()) {
+//             Some(())
+//         } else {
+//             None
+//         }
+//     }
+// }
 
-impl From<ZValue> for ZVal {
-    fn from(value: ZValue) -> Self {
-        unsafe {
-            let ptr  = ZValue::into_raw(value);
-            ptr.read()
-        }
-    }
-}
+// pub type ZValue = EBox<ZVal>;
+
+// impl From<ZValue> for ZVal {
+//     fn from(value: ZValue) -> Self {
+//         unsafe {
+//             let ptr  = ZValue::into_raw(value);
+//             ptr.read()
+//         }
+//     }
+// }
+
+// pub struct ZValRef<'b> {
+//     ptr: NonNull<ZVal>,
+//     borrow: Ref<'b, ()>,
+// }
+
+// impl Deref for ZValRef<'_> {
+//     type Target = ZVal;
+
+//     #[inline]
+//     fn deref(&self) -> &ZVal {
+//         // SAFETY: the value is accessible as long as we hold our borrow.
+//         unsafe { self.ptr.as_ref() }
+//     }
+// }
+
+// impl Debug for ZValRef<'_> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         Debug::fmt(&**self, f)
+//     }
+// }
+
+// pub struct ZValRefMut<'b> {
+//     ptr: NonNull<ZVal>,
+//     borrow: RefMut<'b, ()>,
+// }
+
+// impl Deref for ERefMut<'_> {
+//     type Target = ZVal;
+
+//     #[inline]
+//     fn deref(&self) -> &T {
+//         // SAFETY: the value is accessible as long as we hold our borrow.
+//         unsafe { self.ptr.as_ref() }
+//     }
+// }
+
+// impl<T> DerefMut for ERefMut<'_, T> {
+//     #[inline]
+//     fn deref_mut(&mut self) -> &mut T {
+//         // SAFETY: the value is accessible as long as we hold our borrow.
+//         unsafe { self.ptr.as_mut() }
+//     }
+// }
+
+// impl<T: Debug> Debug for ERefMut<'_, T> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         Debug::fmt(&*(self.deref()), f)
+//     }
+// }
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]

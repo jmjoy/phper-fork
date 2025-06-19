@@ -20,7 +20,7 @@ use crate::{
     sys::*,
     types::Scalar,
     utils::ensure_end_with_zero,
-    values::ZVal,
+    values::{ZVal, ZValue},
 };
 use std::{
     any::Any,
@@ -139,7 +139,7 @@ impl ClassEntry {
     pub fn init_object(&self) -> crate::Result<ZObject> {
         unsafe {
             let ptr = self.as_ptr() as *mut _;
-            let mut val = ZVal::default();
+            let mut val = ZValue::default();
             if !phper_object_init_ex(val.as_mut_ptr(), ptr) {
                 Err(InitializeObjectError::new(self.get_name().to_str()?.to_owned()).into())
             } else {
@@ -506,7 +506,7 @@ impl<T: 'static> ClassEntity<T> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(StateObject<T>, Box<[ZVal]>) -> Result<Z, E> + 'static,
+        F: Fn(&StateObject<T>, &[ZVal]) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {
@@ -523,7 +523,7 @@ impl<T: 'static> ClassEntity<T> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(Box<[ZVal]>) -> Result<Z, E> + 'static,
+        F: Fn(&[ZVal]) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {

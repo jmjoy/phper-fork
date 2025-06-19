@@ -14,14 +14,14 @@
 
 use crate::{
     classes::{ClassEntry, RawVisibility, Visibility},
-    errors::{ArgumentCountError, ExceptionGuard, ThrowObject, Throwable, throw},
+    errors::{throw, ArgumentCountError, ExceptionGuard, ThrowObject, Throwable},
     modules::global_module,
     objects::{StateObj, StateObject, ZObj, ZObject},
     strings::{ZStr, ZString},
     sys::*,
     types::{ArgumentTypeHint, ReturnTypeHint},
     utils::ensure_end_with_zero,
-    values::{ExecuteData, ZVal, Value},
+    values::{ExecuteData, Value, ZVal, ZValue},
 };
 use phper_alloc::ToRefOwned;
 use std::{
@@ -43,7 +43,7 @@ const INVOKE_MYSTERIOUS_CODE: &[u8] = b"PHPER";
 pub(crate) type HandlerMap = HashMap<(Option<CString>, CString), Rc<dyn Callable>>;
 
 pub(crate) trait Callable {
-    fn call(&self, execute_data: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal);
+    fn call(&self, execute_data: &mut ExecuteData, arguments: &[ZValue], return_value: &mut ZValue);
 }
 
 pub(crate) struct Function<F, Z, E>(F, PhantomData<(Z, E)>);
@@ -56,11 +56,11 @@ impl<F, Z, E> Function<F, Z, E> {
 
 impl<F, Z, E> Callable for Function<F, Z, E>
 where
-    F: Fn(Box<[ZVal]>) -> Result<Z, E>,
-    Z: Into<ZVal>,
+    F: Fn(&[ZValue]) -> Result<Z, E>,
+    Z: Into<ZValue>,
     E: Throwable,
 {
-    fn call(&self, _: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal) {
+    fn call(&self, _: &mut ExecuteData, arguments: &[ZValue], return_value: &mut ZValue) {
         match (self.0)(arguments) {
             Ok(z) => {
                 *return_value = z.into();
@@ -85,15 +85,15 @@ impl<F, Z, E, T> Method<F, Z, E, T> {
 
 impl<F, Z, E, T: 'static> Callable for Method<F, Z, E, T>
 where
-    F: Fn(StateObject<T>, Box<[ZVal]>) -> Result<Z, E>,
-    Z: Into<ZVal>,
+    F: Fn(&StateObject<T>, &[ZValue]) -> Result<Z, E>,
+    Z: Into<ZValue>,
     E: Throwable,
 {
     fn call(
-        &self, execute_data: &mut ExecuteData, arguments: Box<[ZVal]>, return_value: &mut ZVal,
+        &self, execute_data: &mut ExecuteData, arguments: &[ZValue], return_value: &mut ZValue,
     ) {
-        let this = unsafe { StateObject::from_raw_object(execute_data.get_this_mut().unwrap().as_mut_ptr()) };
-        match (self.0)(this, arguments) {
+        let this = unsafe { ManuallyDrop::new(StateObject::from_raw_object(execute_data.get_this_mut().unwrap().as_mut_ptr())) };
+        match (self.0)(&*this, arguments) {
             Ok(z) => {
                 *return_value = z.into();
             }
@@ -824,7 +824,7 @@ unsafe extern "C" fn invoke(execute_data: *mut zend_execute_data, return_value: 
 
         handler.call(
             execute_data,
-            arguments,
+            transmute::<&[ManuallyDrop<ZVal>], &[ZVal]>(&*arguments),
             return_value,
         );
     }

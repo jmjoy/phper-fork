@@ -389,7 +389,7 @@ impl<B: EnumBackingType> EnumEntity<B> {
         &mut self, name: impl Into<String>, vis: Visibility, handler: F,
     ) -> &mut MethodEntity
     where
-        F: Fn(Box<[ZVal]>) -> Result<Z, E> + 'static,
+        F: Fn(&[ZVal]) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {

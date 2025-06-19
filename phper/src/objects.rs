@@ -15,7 +15,7 @@ use crate::{
     classes::ClassEntry,
     functions::{call_internal, call_raw_common, ZFunc},
     sys::*,
-    values::{Value, ZVal, ZValue},
+    values::{Value, ZVal},
 };
 use phper_alloc::{RefClone, ToRefOwned};
 use std::{
@@ -131,14 +131,14 @@ impl ZObj {
         unsafe { ClassEntry::from_mut_ptr(self.inner.ce) }
     }
 
-    pub fn get_owned_property(&self, name: impl AsRef<str>) -> ZValue {
-        let object = self.as_ptr() as *mut _;
-        let prop = Self::inner_get_property(self.inner.ce, object, name);
-        unsafe {
-            phper_z_try_addref_p(prop);
-            ZValue::from_raw_cast(prop)
-        }
-    }
+    // pub fn get_owned_property(&self, name: impl AsRef<str>) -> ZValue {
+    //     let object = self.as_ptr() as *mut _;
+    //     let prop = Self::inner_get_property(self.inner.ce, object, name);
+    //     unsafe {
+    //         phper_z_try_addref_p(prop);
+    //         ZValue::from_raw_cast(prop)
+    //     }
+    // }
 
     /// Get the property by name of object.
     pub fn get_property(&self, name: impl AsRef<str>) -> &ZVal {
@@ -266,9 +266,9 @@ impl Debug for ZObj {
 }
 
 impl ZRC for ZObj {
-    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+    unsafe fn rc(mut this: NonNull<Self>) -> NonNull<zend_refcounted_h> {
         unsafe {
-            Some(NonNull::new(&raw mut this.as_mut().inner.gc).unwrap())
+            NonNull::new(&raw mut this.as_mut().inner.gc).unwrap()
         }
     }
 }
@@ -425,9 +425,9 @@ impl<T> Debug for StateObj<T> {
 }
 
 impl<T> ZRC for StateObj<T> {
-    unsafe fn rc(mut this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>> {
+    unsafe fn rc(mut this: NonNull<Self>) -> NonNull<zend_refcounted_h> {
         unsafe {
-            Some(NonNull::new(&raw mut this.as_mut().object.inner.gc).unwrap())
+            NonNull::new(&raw mut this.as_mut().object.inner.gc).unwrap()
         }
     }
 }

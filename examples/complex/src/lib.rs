@@ -16,18 +16,18 @@ use phper::{
     modules::Module,
     objects::{StateObj, StateObject},
     php_get_module,
-    values::ZVal,
+    values::{ZVal, ZValue},
 };
 use std::{convert::Infallible, ffi::CStr};
 
-fn say_hello(mut arguments: Box<[ZVal]>) -> phper::Result<String> {
-    let name = &mut arguments[0];
+fn say_hello(arguments: &[ZValue]) -> phper::Result<String> {
+    let mut name = arguments[0].borrow_mut();
     name.convert_to_string();
     let name = name.as_z_str().unwrap().to_str()?;
     Ok(format!("Hello, {}!\n", name))
 }
 
-fn throw_exception(_: Box<[ZVal]>) -> phper::Result<()> {
+fn throw_exception(_: &[ZVal]) -> phper::Result<()> {
     Err(phper::Error::Boxed("I am sorry".into()))
 }
 
@@ -60,7 +60,7 @@ pub fn get_module() -> Module {
         .add_function("complex_say_hello", say_hello)
         .argument(Argument::new("name"));
     module.add_function("complex_throw_exception", throw_exception);
-    module.add_function("complex_get_all_ini", |_: Box<[ZVal]>| {
+    module.add_function("complex_get_all_ini", |_: &[ZVal]| {
         let arr = ZArray::new();
 
         let complex_enable = ZVal::from(ini_get::<bool>("complex.enable"));
@@ -77,8 +77,8 @@ pub fn get_module() -> Module {
     foo_class.add_method(
         "getFoo",
         Visibility::Public,
-        |this: StateObject<()>, _: Box<[ZVal]>| {
-            let prop = this.borrow().get_owned_property("foo");
+        |this: &StateObject<()>, _: &[ZVal]| {
+            let prop = this.borrow().get_property("foo").clone();
             Ok::<_, phper::Error>(prop)
         },
     );
@@ -86,8 +86,9 @@ pub fn get_module() -> Module {
         .add_method(
             "setFoo",
             Visibility::Public,
-            |this: StateObject<()>, arguments: Box<[ZVal]>| -> phper::Result<()> {
-                this.borrow_mut().set_property("foo", arguments[0]);
+            |this: &StateObject<()>, arguments: &[ZVal]| -> phper::Result<()> {
+                *this.borrow_mut().get_mut_property("foo") = arguments[0].clone();
+                // this.borrow_mut().set_property("foo", arguments[0]);
                 Ok(())
             },
         )

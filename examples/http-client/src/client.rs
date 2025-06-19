@@ -34,10 +34,10 @@ pub fn make_client_builder_class(client_class: ClientClass) -> ClassEntity<Clien
     class
         .add_method("timeout", Visibility::Public, |this, arguments| {
             let ms = arguments[0].expect_long()?;
-            let state = this.as_mut_state();
+            let state = this.borrow_mut().as_mut_state();
             let builder: ClientBuilder = take(state);
             *state = builder.timeout(Duration::from_millis(ms as u64));
-            Ok::<_, phper::Error>(this)
+            Ok::<_, phper::Error>(this.clone())
         })
         .argument(Argument::new("ms"));
 

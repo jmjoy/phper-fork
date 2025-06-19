@@ -205,7 +205,7 @@ impl Module {
         &mut self, name: impl Into<String>, handler: F,
     ) -> &mut FunctionEntity
     where
-        F: Fn(Box<[ZVal]>) -> Result<Z, E> + 'static,
+        F: Fn(&[ZVal]) -> Result<Z, E> + 'static,
         Z: Into<ZVal> + 'static,
         E: Throwable + 'static,
     {

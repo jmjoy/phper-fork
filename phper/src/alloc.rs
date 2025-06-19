@@ -12,7 +12,7 @@
 
 pub use phper_alloc::{RefClone, ToRefOwned};
 use std::{
-    borrow::{Borrow, BorrowMut}, cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut}, collections::HashMap, fmt::{self, Debug}, mem::ManuallyDrop, ops::{Deref, DerefMut}, ptr::NonNull
+    borrow::{Borrow, BorrowMut}, cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut}, collections::HashMap, fmt::{self, Debug}, mem::ManuallyDrop, ops::{Deref, DerefMut}, ptr::NonNull, rc::Rc
 };
 use phper_sys::{zend_refcounted_h, phper_zend_gc_addref};
 
@@ -27,7 +27,7 @@ use phper_sys::{zend_refcounted_h, phper_zend_gc_addref};
 /// ensuring proper cleanup of PHP resources.
 pub struct EBox<T> {
     ptr: NonNull<T>,
-    cell: RefCell<()>,
+    cell: Rc<RefCell<()>>,
 }
 
 impl<T> EBox<T> {
@@ -40,7 +40,7 @@ impl<T> EBox<T> {
         // REF_CELL_MAP.with_borrow_mut(|map| {
         //     map.entry(raw as usize).or_default();
         // });
-        Self { ptr: NonNull::new(raw).unwrap(), cell: RefCell::new(()) }
+        Self { ptr: NonNull::new(raw).unwrap(), cell: Default::default() }
     }
 
     /// Consumes and returning a wrapped raw pointer.
@@ -71,7 +71,7 @@ impl<T> EBox<T> {
         // });
         ERef {
             ptr: self.ptr,
-            borrow: self.cell.borrow(),
+            borrow: self.cell.deref().borrow(),
         }
     }
 
@@ -79,7 +79,7 @@ impl<T> EBox<T> {
         Ok(
             ERef {
                 ptr: self.ptr,
-                borrow: self.cell.try_borrow()?,
+                borrow: self.cell.deref().try_borrow()?,
             }
         )
     }
@@ -90,7 +90,7 @@ impl<T> EBox<T> {
         // });
         ERefMut {
             ptr: self.ptr,
-            borrow: self.cell.borrow_mut(),
+            borrow: self.cell.deref().borrow_mut(),
         }
     }
 
@@ -98,7 +98,7 @@ impl<T> EBox<T> {
         Ok(
             ERefMut {
                 ptr: self.ptr,
-                borrow: self.cell.try_borrow_mut()?,
+                borrow: self.cell.deref().try_borrow_mut()?,
             }
         )
     }
@@ -136,8 +136,8 @@ impl<T: ZRC> Clone for EBox<T> {
 }
 
 pub struct ERef<'b, T> where T: 'b {
-    ptr: NonNull<T>,
-    borrow: Ref<'b, ()>,
+    pub(crate) ptr: NonNull<T>,
+    pub(crate) borrow: Ref<'b, ()>,
 }
 
 impl<T> Deref for ERef<'_, T> {
@@ -157,8 +157,8 @@ impl<T: Debug> Debug for ERef<'_, T> {
 }
 
 pub struct ERefMut<'b, T> where T: 'b {
-    ptr: NonNull<T>,
-    borrow: RefMut<'b, ()>,
+ pub(crate)    ptr: NonNull<T>,
+ pub(crate)    borrow: RefMut<'b, ()>,
 }
 
 impl<T> Deref for ERefMut<'_, T> {
@@ -186,5 +186,5 @@ impl<T: Debug> Debug for ERefMut<'_, T> {
 }
 
 pub(crate) trait ZRC {
-    unsafe fn rc(this: NonNull<Self>) -> Option<NonNull<zend_refcounted_h>>;
+    unsafe fn rc(this: NonNull<Self>) -> NonNull<zend_refcounted_h>;
 }
