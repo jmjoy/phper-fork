@@ -14,7 +14,7 @@ use crate::{
     classes::{ClassEntity, Interface, InterfaceEntity, StateClass},
     constants::Constant,
     errors::Throwable,
-    functions::{Function, FunctionEntity, FunctionEntry, HandlerMap},
+    functions::{FunctionEntity, FunctionEntry, HandlerMap},
     ini,
     sys::*,
     types::Scalar,
@@ -27,7 +27,6 @@ use std::{
     mem::{size_of, take, transmute, zeroed},
     os::raw::{c_int, c_uchar, c_uint, c_ushort},
     ptr::{null, null_mut},
-    rc::Rc,
 };
 
 /// Global pointer hold the Module builder.
@@ -217,8 +216,37 @@ impl Module {
         E: Throwable + 'static,
     {
         self.function_entities
-            .push(FunctionEntity::new(name, Rc::new(Function::new(handler))));
+            .push(FunctionEntity::new(name, handler));
         self.function_entities.last_mut().unwrap()
+    }
+
+    /// Register a pre-built FunctionEntity to module.
+    ///
+    /// This allows you to construct a FunctionEntity first with all its
+    /// arguments and return type configured, then add it to the module.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use phper::{
+    ///     functions::{Argument, FunctionEntity},
+    ///     modules::Module,
+    /// };
+    /// use std::rc::Rc;
+    ///
+    /// let mut module = Module::new(
+    ///     env!("CARGO_CRATE_NAME"),
+    ///     env!("CARGO_PKG_VERSION"),
+    ///     env!("CARGO_PKG_AUTHORS"),
+    /// );
+    ///
+    /// let handler = |_args: &mut [phper::values::ZVal]| Ok::<_, phper::errors::Error>(());
+    /// let mut func = FunctionEntity::new("my_function", handler);
+    /// func.argument(Argument::new("arg1"));
+    /// module.add_function_entity(func);
+    /// ```
+    pub fn add_function_entity(&mut self, function_entity: FunctionEntity) {
+        self.function_entities.push(function_entity);
     }
 
     /// Register class to module.

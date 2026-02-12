@@ -400,11 +400,31 @@ pub struct FunctionEntity {
 }
 
 impl FunctionEntity {
+    /// Create a new FunctionEntity with name and handler.
+    ///
+    /// This allows you to construct a FunctionEntity first, then configure it
+    /// with arguments and return type, before adding it to a module.
+    ///
+    /// The handler parameter type is the same as [`Module::add_function`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use phper::functions::{Argument, FunctionEntity};
+    ///
+    /// let mut func = FunctionEntity::new("my_function", |_args| Ok::<_, phper::errors::Error>(()));
+    /// func.argument(Argument::new("arg1"));
+    /// ```
     #[inline]
-    pub(crate) fn new(name: impl Into<String>, handler: Rc<dyn Callable>) -> Self {
+    pub fn new<F, Z, E>(name: impl Into<String>, handler: F) -> Self
+    where
+        F: Fn(&mut [ZVal]) -> Result<Z, E> + 'static,
+        Z: Into<ZVal> + 'static,
+        E: Throwable + 'static,
+    {
         FunctionEntity {
             name: ensure_end_with_zero(name),
-            handler,
+            handler: Rc::new(Function::new(handler)),
             arguments: Default::default(),
             return_type: None,
         }
