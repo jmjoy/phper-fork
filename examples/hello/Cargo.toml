@@ -16,6 +16,7 @@ authors = { workspace = true }
 edition = { workspace = true }
 rust-version = { workspace = true }
 license = { workspace = true }
+homepage = { workspace = true }
 
 [lib]
 name = "hello"
