@@ -2,7 +2,7 @@
 
 <h1>PHPER (PHP Enjoy Rust)</h1>
 
-<img src="https://avatars.githubusercontent.com/u/112468984?s=380&v=4" alt="PHPER Logo">
+<img src="https://avatars.githubusercontent.com/u/112468984?s=380&v=4" alt="PHPER Logo" style="width: 380px; height: 200px; object-fit: cover;" />
 
 <p>
 <a href="https://github.com/phper-framework/phper/actions/workflows/ci.yml"><img src="https://github.com/phper-framework/phper/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
