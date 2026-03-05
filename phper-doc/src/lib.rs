@@ -26,7 +26,23 @@ pub mod _02_quick_start {
     pub mod _01_write_your_first_extension {}
 
     #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/index.md")]
-    pub mod _02_write_a_simple_http_client {}
+    pub mod _02_write_a_simple_http_client {
+
+        #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/_01_prepare_project/index.md")]
+        pub mod _01_prepare_project {}
+
+        #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/_02_define_exception_and_error/index.md")]
+        pub mod _02_define_exception_and_error {}
+
+        #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/_03_implement_client_and_request/index.md")]
+        pub mod _03_implement_client_and_request {}
+
+        #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/_04_implement_response_and_module/index.md")]
+        pub mod _04_implement_response_and_module {}
+
+        #[doc = include_str!("../doc/_02_quick_start/_02_write_a_simple_http_client/_05_build_and_test/index.md")]
+        pub mod _05_build_and_test {}
+    }
 }
 
 #[doc = include_str!("../doc/_03_integrate_with_pecl/index.md")]
